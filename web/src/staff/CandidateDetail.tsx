@@ -35,9 +35,11 @@ export function CandidateDetail() {
   const [preview, setPreview] = useState(false);
   const [autoNext, setAutoNext] = useState(readAutoNext);
 
-  // Navigation order follows what the list showed; fall back to the full list
-  // when the current candidate dropped out of the filter (e.g. just checked).
-  const order = useMemo(() => (ws.filtered.some((x) => x.id === id) ? ws.filtered : ws.candidates), [ws.filtered, ws.candidates, id]);
+  // Navigation order follows what the list showed (my rows, or the filtered roster); fall back
+  // to the full list when the current candidate dropped out of it (e.g. just checked).
+  const order = useMemo(() => (ws.navList.some((x) => x.id === id) ? ws.navList : ws.candidates), [ws.navList, ws.candidates, id]);
+  const group = ws.groupOf.get(id);
+  const inMine = ws.view === 'mine' && ws.mine.some((x) => x.id === id);
   const index = order.findIndex((x) => x.id === id);
   const prev = index > 0 ? order[index - 1] : null;
   const next = index >= 0 && index < order.length - 1 ? order[index + 1] : null;
@@ -45,6 +47,12 @@ export function CandidateDetail() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [id]);
+
+  // Back on the list, the row being worked on is the one left open.
+  const { revealGroup } = ws;
+  useEffect(() => {
+    if (group) revealGroup(group.key);
+  }, [group?.key, revealGroup]);
 
   useEffect(() => {
     chat.setRaised(true);
@@ -65,9 +73,9 @@ export function CandidateDetail() {
     );
   }
 
-  /** Next pending candidate after this one in seat order, wrapping around. */
+  /** Next pending candidate after this one in seat order, wrapping around; stays within my rows when working from them. */
   const nextPending = (current: Candidate) => {
-    const all = ws.candidates;
+    const all = inMine ? ws.mine : ws.candidates;
     const i = all.findIndex((x) => x.id === current.id);
     for (let k = 1; k < all.length; k++) {
       const cand = all[(i + k) % all.length];
@@ -80,9 +88,12 @@ export function CandidateDetail() {
     ws.upsert(updated);
     if (!autoNext) return;
     const n = nextPending(updated);
-    if (n) navigate(`${base}/c/${n.id}`, { replace: true });
-    else {
-      message.success('本场考生已全部核查完成');
+    if (n) {
+      const g = ws.groupOf.get(n.id);
+      if (inMine && g && g !== group) message.info(`${group?.label ?? ''} 已完成，进入 ${g.label}`);
+      navigate(`${base}/c/${n.id}`, { replace: true });
+    } else {
+      message.success(inMine ? '你负责的考生已全部核查完成' : '本场考生已全部核查完成');
       navigate(base);
     }
   };
@@ -136,6 +147,7 @@ export function CandidateDetail() {
             名单
           </Button>
           <div className="m-header-title" style={{ textAlign: 'center' }}>
+            {inMine && group?.row ? `第 ${group.row} 排 · ` : ''}
             {index >= 0 ? `${index + 1} / ${order.length}` : ''}
           </div>
           <span style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -195,10 +207,15 @@ export function CandidateDetail() {
         <div style={{ textAlign: 'center', marginTop: 10 }}>
           {c.seatNo ? (
             <Tag color="blue" style={{ fontSize: 16, padding: '4px 14px' }}>
-              座位号 {c.seatNo}
+              {c.room ? `${c.room} · ` : ''}
+              {c.row ? `第 ${c.row} 排 · ` : ''}
+              {c.seatNo} 号
             </Tag>
           ) : (
-            <Tag style={{ fontSize: 14, padding: '3px 12px' }}>未分配座位</Tag>
+            <Tag style={{ fontSize: 14, padding: '3px 12px' }}>{c.room ? `${c.room} · ` : ''}未分配座位</Tag>
+          )}
+          {group?.owner && !ws.myGroups.includes(group) && (
+            <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 6 }}>该排由 {group.owner.userName} 负责</div>
           )}
         </div>
       </div>
@@ -261,6 +278,7 @@ export function CandidateDetail() {
       >
         <div style={{ color: '#8c8c8c', marginBottom: 10, fontSize: 13 }}>
           {c.studentNo}
+          {c.room ? ` · ${c.room}` : ''}
           {c.seatNo ? ` · 座位 ${c.seatNo}` : ''}
         </div>
         <Radio.Group

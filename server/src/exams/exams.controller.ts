@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Res,
   UploadedFile,
@@ -60,6 +61,17 @@ export class ExamsController {
   @Get('exams/:id/candidates')
   candidates(@CurrentUser() user: User, @Param('id') id: string) {
     return this.exams.candidatesOf(user, intId(id));
+  }
+
+  @Get('exams/:id/assignments')
+  assignments(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.exams.assignmentsOf(user, intId(id));
+  }
+
+  @Roles('admin')
+  @Put('exams/:id/assignments')
+  setAssignments(@Param('id') id: string, @Body() body: any) {
+    return this.exams.setAssignments(intId(id), body);
   }
 
   @Roles('admin')

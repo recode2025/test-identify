@@ -9,7 +9,7 @@ interface SheetInfo {
   reason?: string;
   rowCount: number;
   columns?: Record<string, string>;
-  preview: { seq: number | null; studentNo: string; name: string; seatNo: string | null }[];
+  preview: { seq: number | null; studentNo: string; name: string; room: string | null; seatNo: string | null }[];
 }
 interface ImportResult {
   sheet: string;
@@ -21,7 +21,7 @@ interface ImportResult {
   errors: { row: number; reason: string }[];
 }
 
-const COLUMN_LABEL: Record<string, string> = { seq: '序号', studentNo: '学号', name: '姓名', seatNo: '座位号' };
+const COLUMN_LABEL: Record<string, string> = { seq: '序号', studentNo: '学号', name: '姓名', room: '考场', seatNo: '座位号' };
 
 export function ImportModal({ examId, open, onClose, onDone }: { examId: number; open: boolean; onClose: () => void; onDone: () => void }) {
   const { message } = App.useApp();
@@ -116,8 +116,10 @@ export function ImportModal({ examId, open, onClose, onDone }: { examId: number;
             description={
               <div>
                 参照「选拔作业」的<b>最终</b>表：第一行为表头，需包含 <Tag>学号</Tag>
-                <Tag>名称/姓名</Tag>，可选 <Tag>座位号</Tag>
-                <Tag>序号</Tag>；座位号可以为空，其余列（如分数）自动忽略。多个工作表时默认使用名为「最终」的表。
+                <Tag>名称/姓名</Tag>，可选 <Tag>考场</Tag>
+                <Tag>座位号</Tag>
+                <Tag>序号</Tag>；考场、座位号可以为空，其余列（如分数）自动忽略。多个工作表时默认使用名为「最终」的表。
+                <div style={{ marginTop: 4 }}>有座位号时会按「每排座位数」自动分排，导入后可在「按排分配」中把每排分给员工。</div>
                 <div style={{ marginTop: 8 }}>
                   <Button size="small" icon={<DownloadOutlined />} onClick={() => download('/import/template.xlsx', '考生名单模板.xlsx').catch((e) => message.error(e.message))}>
                     下载 Excel 模板
@@ -176,6 +178,7 @@ export function ImportModal({ examId, open, onClose, onDone }: { examId: number;
                   { title: '序号', dataIndex: 'seq', width: 70 },
                   { title: '姓名', dataIndex: 'name' },
                   { title: '学号', dataIndex: 'studentNo' },
+                  { title: '考场', dataIndex: 'room', render: (v) => v || <Typography.Text type="secondary">空</Typography.Text> },
                   { title: '座位号', dataIndex: 'seatNo', render: (v) => v || <Typography.Text type="secondary">空</Typography.Text> },
                 ]}
               />
@@ -185,7 +188,7 @@ export function ImportModal({ examId, open, onClose, onDone }: { examId: number;
             <div style={{ marginBottom: 6, fontWeight: 600 }}>导入方式</div>
             <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}>
               <Space direction="vertical">
-                <Radio value="merge">合并更新：按学号新增或更新姓名/座位号，保留已有核查结果</Radio>
+                <Radio value="merge">合并更新：按学号新增或更新姓名/考场/座位号，保留已有核查结果</Radio>
                 <Radio value="replace">
                   覆盖：同上，并<Typography.Text type="danger">删除表中不存在的考生</Typography.Text>
                 </Radio>

@@ -27,6 +27,10 @@ export class Candidate {
   @Column()
   name: string;
 
+  /** 考场, e.g. 10B-405; seat numbers restart in every room. */
+  @Column({ type: 'varchar', nullable: true })
+  room: string | null;
+
   @Column({ type: 'varchar', nullable: true })
   seatNo: string | null;
 

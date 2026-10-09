@@ -34,17 +34,20 @@ import {
   PlusOutlined,
   RollbackOutlined,
   SearchOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { api, download, photoUrl } from '../lib/api';
 import { useLiveRefresh, useSocketEvent } from '../lib/socket';
 import { Photo } from '../components/Photo';
-import { Candidate, CheckStatus, Exam, ISSUE_LABEL, STATUS_META } from '../lib/types';
+import { Candidate, CheckStatus, Exam, ISSUE_LABEL, RowAssignment, STATUS_META } from '../lib/types';
+import { rowKey } from '../lib/rows';
 import { matches } from '../staff/ExamWorkspace';
 import { ExamFormModal } from './ExamForm';
 import { ImportModal } from './ImportModal';
 import { PhotoUploadModal } from './PhotoUploadModal';
 import { HandleModal } from './HandleModal';
+import { RowAssignDrawer } from './RowAssignDrawer';
 
 type Filter = 'all' | CheckStatus | 'unhandled' | 'nophoto';
 
@@ -63,12 +66,19 @@ export function ExamDetail() {
   const [handling, setHandling] = useState<Candidate | null>(null);
   const [editing, setEditing] = useState<Candidate | 'new' | null>(null);
   const [historyOf, setHistoryOf] = useState<Candidate | null>(null);
+  const [assignments, setAssignments] = useState<RowAssignment[]>([]);
+  const [assignOpen, setAssignOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [exams, list] = await Promise.all([api<Exam[]>('/exams'), api<Candidate[]>(`/exams/${examId}/candidates`)]);
+      const [exams, list, rowOwners] = await Promise.all([
+        api<Exam[]>('/exams'),
+        api<Candidate[]>(`/exams/${examId}/candidates`),
+        api<RowAssignment[]>(`/exams/${examId}/assignments`),
+      ]);
       setExam(exams.find((e) => e.id === examId) ?? null);
       setRows(list);
+      setAssignments(rowOwners);
     } catch (e: any) {
       message.error(e.message);
     } finally {
@@ -84,6 +94,10 @@ export function ExamDetail() {
   useSocketEvent<Candidate>('candidate:updated', (c) => c.examId === examId && setRows((prev) => prev.map((r) => (r.id === c.id ? c : r))));
   useSocketEvent<{ examId: number }>('candidates:reload', (p) => p.examId === examId && load());
   useSocketEvent('photos:changed', load);
+  useSocketEvent<{ examId: number }>('assignments:changed', (p) => p.examId === examId && load());
+
+  const owners = useMemo(() => new Map(assignments.map((a) => [rowKey(a.room, a.row), a.userName])), [assignments]);
+  const hasRooms = useMemo(() => rows.some((r) => r.room), [rows]);
 
   const counts = useMemo(() => {
     const c = { all: rows.length, pending: 0, normal: 0, issue: 0, unhandled: 0, nophoto: 0 };
@@ -170,6 +184,9 @@ export function ExamDetail() {
             <Button icon={<PictureOutlined />} onClick={() => setPhotoOpen(true)}>
               上传照片
             </Button>
+            <Button icon={<TeamOutlined />} onClick={() => setAssignOpen(true)}>
+              按排分配{assignments.length ? `（${assignments.length} 排）` : ''}
+            </Button>
             <Button icon={<DownloadOutlined />} onClick={() => download(`/exams/${examId}/export.xlsx`, '核查结果.xlsx').catch((e) => message.error(e.message))}>
               导出结果
             </Button>
@@ -249,12 +266,36 @@ export function ExamDetail() {
               { title: '序号', dataIndex: 'seq', width: 70, sorter: (a, b) => (a.seq ?? 1e9) - (b.seq ?? 1e9) },
               { title: '姓名', dataIndex: 'name', width: 100 },
               { title: '学号', dataIndex: 'studentNo', width: 120, sorter: (a, b) => a.studentNo.localeCompare(b.studentNo) },
+              ...(hasRooms
+                ? [
+                    {
+                      title: '考场',
+                      dataIndex: 'room',
+                      width: 100,
+                      render: (v: string | null) => v || <Typography.Text type="secondary">—</Typography.Text>,
+                    },
+                  ]
+                : []),
               {
-                title: '座位号',
+                title: '座位 / 负责人',
                 dataIndex: 'seatNo',
-                width: 90,
-                render: (v) => v || <Typography.Text type="secondary">—</Typography.Text>,
-                sorter: (a, b) => (a.seatNo ?? '').localeCompare(b.seatNo ?? '', 'zh-CN', { numeric: true }),
+                width: 130,
+                render: (v, r) =>
+                  v ? (
+                    <div>
+                      {v}
+                      {r.row && (
+                        <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+                          第 {r.row} 排 · {owners.get(rowKey(r.room, r.row)) ?? '未分配'}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <Typography.Text type="secondary">—</Typography.Text>
+                  ),
+                sorter: (a, b) =>
+                  (a.room ?? '').localeCompare(b.room ?? '', 'zh-CN', { numeric: true }) ||
+                  (a.seatNo ?? '').localeCompare(b.seatNo ?? '', 'zh-CN', { numeric: true }),
               },
               {
                 title: '状态',
@@ -337,6 +378,7 @@ export function ExamDetail() {
       <HandleModal candidate={handling} onClose={() => setHandling(null)} />
       <CandidateForm examId={examId} target={editing} onClose={() => setEditing(null)} />
       <HistoryDrawer candidate={historyOf} onClose={() => setHistoryOf(null)} />
+      <RowAssignDrawer exam={exam} candidates={rows} assignments={assignments} open={assignOpen} onClose={() => setAssignOpen(false)} />
     </div>
   );
 }
@@ -348,7 +390,7 @@ function CandidateForm({ examId, target, onClose }: { examId: number; target: Ca
   const isNew = target === 'new';
 
   useEffect(() => {
-    if (target) form.setFieldsValue(isNew ? { name: '', studentNo: '', seatNo: '', seq: '' } : { name: target.name, studentNo: target.studentNo, seatNo: target.seatNo ?? '' });
+    if (target) form.setFieldsValue(isNew ? { name: '', studentNo: '', room: '', seatNo: '', seq: '' } : { name: target.name, studentNo: target.studentNo, room: target.room ?? '', seatNo: target.seatNo ?? '' });
   }, [target, isNew, form]);
 
   const submit = async () => {
@@ -374,6 +416,9 @@ function CandidateForm({ examId, target, onClose }: { examId: number; target: Ca
         </Form.Item>
         <Form.Item name="studentNo" label="学号" rules={[{ required: true }]}>
           <Input maxLength={40} />
+        </Form.Item>
+        <Form.Item name="room" label="考场（可为空）">
+          <Input maxLength={50} placeholder="例如：10B-405" />
         </Form.Item>
         <Form.Item name="seatNo" label="座位号（可为空）">
           <Input maxLength={20} />

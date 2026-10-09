@@ -2,12 +2,12 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ExamsController } from './exams.controller';
 import { ExamsService } from './exams.service';
-import { Candidate, CheckLog, Exam } from '../entities';
+import { Candidate, CheckLog, Exam, RowAssignment } from '../entities';
 import { PhotosModule } from '../photos/photos.module';
 import { ChatModule } from '../chat/chat.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Exam, Candidate, CheckLog]), PhotosModule, ChatModule],
+  imports: [TypeOrmModule.forFeature([Exam, Candidate, CheckLog, RowAssignment]), PhotosModule, ChatModule],
   controllers: [ExamsController],
   providers: [ExamsService],
 })

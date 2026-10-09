@@ -24,8 +24,18 @@ export interface Exam {
   date: string;
   location: string;
   active: boolean;
+  seatsPerRow: number;
   createdAt: string;
   stats: ExamStats;
+  /** Staff only: how many rows of this exam are assigned to the viewer. */
+  myRows?: number;
+}
+
+export interface RowAssignment {
+  room: string;
+  row: number;
+  userId: number;
+  userName: string;
 }
 
 export interface Candidate {
@@ -34,7 +44,10 @@ export interface Candidate {
   seq: number | null;
   studentNo: string;
   name: string;
+  room: string | null;
   seatNo: string | null;
+  /** Derived by the server from seatNo and the exam's seatsPerRow; null when the seat is blank. */
+  row: number | null;
   status: CheckStatus;
   issueType: IssueType | null;
   issueNote: string | null;

@@ -2,21 +2,26 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
-import { Candidate, CheckLog, Exam, IssueType, User } from '../entities';
+import { Candidate, CheckLog, Exam, IssueType, RowAssignment, User } from '../entities';
 import { RealtimeGateway, rooms } from '../realtime/realtime.gateway';
 import { ExamAccessService } from './exam-access.service';
 import { PhotosService } from '../photos/photos.service';
 import { ChatService, candidateLabel } from '../chat/chat.service';
 import { readWorkbook, SheetRow } from './excel';
 import { str } from '../common/http';
+import { rowKey, seatRow } from './rows';
 
 export const ISSUE_LABELS: Record<IssueType, string> = { cheat: '作弊', substitute: '替考', other: '其他' };
 const STATUS_LABELS = { pending: '未核查', normal: '正常', issue: '异常' };
 
 const collator = new Intl.Collator('zh-CN', { numeric: true });
 
-/** Seat order first (blank seats last), then the sheet's 序号, then student number. */
+/** Room, then seat order (blank seats last), then the sheet's 序号, then student number. */
 function compareCandidates(a: Candidate, b: Candidate) {
+  if ((a.room ?? '') !== (b.room ?? '')) {
+    if (!a.room || !b.room) return a.room ? -1 : 1;
+    return collator.compare(a.room, b.room);
+  }
   if (a.seatNo && b.seatNo) return collator.compare(a.seatNo, b.seatNo) || a.id - b.id;
   if (a.seatNo || b.seatNo) return a.seatNo ? -1 : 1;
   return (a.seq ?? Infinity) - (b.seq ?? Infinity) || collator.compare(a.studentNo, b.studentNo);
@@ -29,6 +34,7 @@ export class ExamsService {
     @InjectRepository(Exam) private readonly exams: Repository<Exam>,
     @InjectRepository(Candidate) private readonly candidates: Repository<Candidate>,
     @InjectRepository(CheckLog) private readonly logs: Repository<CheckLog>,
+    @InjectRepository(RowAssignment) private readonly assignments: Repository<RowAssignment>,
     private readonly access: ExamAccessService,
     private readonly photos: PhotosService,
     private readonly chat: ChatService,
@@ -54,6 +60,9 @@ export class ExamsService {
       FROM candidates c LEFT JOIN photos p ON p.studentNo = c.studentNo
       GROUP BY c.examId`);
     const byExam = new Map(stats.map((s) => [s.examId, s]));
+    const mine: { examId: number; n: number }[] =
+      user.role === 'staff' ? await this.ds.query(`SELECT examId, COUNT(*) AS n FROM row_assignments WHERE userId = ? GROUP BY examId`, [user.id]) : [];
+    const myRows = new Map(mine.map((r) => [r.examId, Number(r.n)]));
     return exams.map((e) => {
       const s = byExam.get(e.id) ?? {};
       const total = Number(s.total ?? 0);
@@ -69,6 +78,7 @@ export class ExamsService {
           unhandled: Number(s.unhandled ?? 0),
           withPhoto: Number(s.withPhoto ?? 0),
         },
+        myRows: myRows.get(e.id) ?? 0,
       };
     });
   }
@@ -80,6 +90,7 @@ export class ExamsService {
         date: str(body.date, '日期', { max: 50 }),
         location: str(body.location, '地点', { max: 100 }),
         active: body.active !== false,
+        seatsPerRow: body.seatsPerRow === undefined ? 12 : this.seatsPerRow(body.seatsPerRow),
       }),
     );
   }
@@ -90,7 +101,18 @@ export class ExamsService {
     if (body.date !== undefined) exam.date = str(body.date, '日期', { max: 50 });
     if (body.location !== undefined) exam.location = str(body.location, '地点', { max: 100 });
     if (body.active !== undefined) exam.active = !!body.active;
-    return this.exams.save(exam);
+    const regroup = body.seatsPerRow !== undefined && this.seatsPerRow(body.seatsPerRow) !== exam.seatsPerRow;
+    if (regroup) exam.seatsPerRow = this.seatsPerRow(body.seatsPerRow);
+    const saved = await this.exams.save(exam);
+    // Every candidate's row changes, so clients refetch.
+    if (regroup) this.realtime.emitTo([rooms.exam(id), rooms.admin], 'candidates:reload', { examId: id });
+    return saved;
+  }
+
+  private seatsPerRow(v: unknown) {
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || n > 200) throw new BadRequestException('每排座位数需在 0-200 之间');
+    return n;
   }
 
   async remove(id: number) {
@@ -98,6 +120,7 @@ export class ExamsService {
     await this.ds.transaction(async (m) => {
       await m.delete(CheckLog, { examId: id });
       await m.delete(Candidate, { examId: id });
+      await m.delete(RowAssignment, { examId: id });
       await m.query('DELETE FROM user_exams WHERE examsId = ?', [id]);
       await m.delete(Exam, { id });
     });
@@ -112,20 +135,66 @@ export class ExamsService {
   // ---------- candidates ----------
 
   async candidatesOf(user: User, examId: number) {
-    await this.access.assert(user, examId);
+    const exam = await this.access.assert(user, examId);
     const rows = await this.candidates.find({ where: { examId } });
     const versions = await this.photos.versions(rows.map((r) => r.studentNo));
-    return rows.sort(compareCandidates).map((c) => this.dto(c, versions.get(c.studentNo)));
+    return rows.sort(compareCandidates).map((c) => this.dto(c, versions.get(c.studentNo), exam.seatsPerRow));
   }
 
-  private dto(c: Candidate, photoVersion?: string | null) {
+  private dto(c: Candidate, photoVersion: string | null | undefined, seatsPerRow: number) {
     const { exam, ...rest } = c as any;
-    return { ...rest, photoVersion: photoVersion ?? null };
+    return { ...rest, row: seatRow(c.seatNo, seatsPerRow), photoVersion: photoVersion ?? null };
   }
 
   private async withPhoto(c: Candidate) {
     const versions = await this.photos.versions([c.studentNo]);
-    return this.dto(c, versions.get(c.studentNo));
+    const exam = await this.exams.findOneBy({ id: c.examId });
+    return this.dto(c, versions.get(c.studentNo), exam?.seatsPerRow ?? 0);
+  }
+
+  // ---------- row assignments ----------
+
+  async assignmentsOf(user: User, examId: number) {
+    await this.access.assert(user, examId);
+    return this.assignmentList(examId);
+  }
+
+  private async assignmentList(examId: number) {
+    const rows = await this.assignments.find({ where: { examId }, relations: { user: true } });
+    return rows.map((a) => ({ room: a.room, row: a.row, userId: a.userId, userName: a.user?.displayName || a.user?.username || '' }));
+  }
+
+  /** Replaces the whole row → staff mapping. Staff who get rows are given access to the exam if they lacked it. */
+  async setAssignments(examId: number, body: any) {
+    await this.getExam(examId);
+    if (!Array.isArray(body.items)) throw new BadRequestException('分配数据无效');
+    const items = new Map<string, { room: string; row: number; userId: number }>();
+    for (const it of body.items) {
+      const row = Number(it?.row);
+      const userId = Number(it?.userId);
+      if (!Number.isInteger(row) || row <= 0 || !Number.isInteger(userId) || userId <= 0) throw new BadRequestException('分配数据无效');
+      const room = str(it.room, '考场', { max: 50 });
+      items.set(rowKey(room, row), { room, row, userId });
+    }
+    const userIds = [...new Set([...items.values()].map((i) => i.userId))];
+    const users = userIds.length ? await this.ds.getRepository(User).findBy({ id: In(userIds) }) : [];
+    if (users.length !== userIds.length || users.some((u) => u.role !== 'staff')) throw new BadRequestException('只能分配给员工账号');
+
+    const granted: number[] = [];
+    await this.ds.transaction(async (m) => {
+      await m.delete(RowAssignment, { examId });
+      await m.getRepository(RowAssignment).save([...items.values()].map((i) => m.create(RowAssignment, { examId, ...i })), { chunk: 200 });
+      for (const uid of userIds) {
+        const has = await m.query('SELECT 1 FROM user_exams WHERE usersId = ? AND examsId = ?', [uid, examId]);
+        if (!has.length) {
+          await m.query('INSERT INTO user_exams (usersId, examsId) VALUES (?, ?)', [uid, examId]);
+          granted.push(uid);
+        }
+      }
+    });
+    for (const uid of granted) this.realtime.emitTo(rooms.user(uid), 'exams:changed', {});
+    this.realtime.emitTo([rooms.exam(examId), rooms.admin, rooms.staff], 'assignments:changed', { examId });
+    return this.assignmentList(examId);
   }
 
   private async getCandidate(id: number) {
@@ -143,6 +212,7 @@ export class ExamsService {
         examId,
         studentNo,
         name: str(body.name, '姓名', { required: true, max: 50 }),
+        room: str(body.room, '考场', { max: 50 }) || null,
         seatNo: str(body.seatNo, '座位号', { max: 20 }) || null,
         seq: body.seq ? Number(body.seq) : null,
       }),
@@ -154,6 +224,7 @@ export class ExamsService {
   async updateCandidate(id: number, body: any) {
     const c = await this.getCandidate(id);
     if (body.name !== undefined) c.name = str(body.name, '姓名', { required: true, max: 50 });
+    if (body.room !== undefined) c.room = str(body.room, '考场', { max: 50 }) || null;
     if (body.seatNo !== undefined) c.seatNo = str(body.seatNo, '座位号', { max: 20 }) || null;
     if (body.studentNo !== undefined) {
       const sno = str(body.studentNo, '学号', { required: true, max: 40 });
@@ -304,8 +375,11 @@ export class ExamsService {
     if (query.handled === 'true' || query.handled === 'false') where.handled = query.handled === 'true';
     const rows = await this.candidates.find({ where, order: { checkedAt: 'DESC' } });
     const versions = await this.photos.versions(rows.map((r) => r.studentNo));
-    const exams = new Map((await this.exams.find()).map((e) => [e.id, e.name]));
-    return rows.map((c) => ({ ...this.dto(c, versions.get(c.studentNo)), examName: exams.get(c.examId) ?? '' }));
+    const exams = new Map((await this.exams.find()).map((e) => [e.id, e]));
+    return rows.map((c) => {
+      const exam = exams.get(c.examId);
+      return { ...this.dto(c, versions.get(c.studentNo), exam?.seatsPerRow ?? 0), examName: exam?.name ?? '' };
+    });
   }
 
   async history(id: number) {
@@ -360,7 +434,7 @@ export class ExamsService {
       for (const row of byStudent.values()) {
         const c = existing.get(row.studentNo);
         if (c) {
-          Object.assign(c, { name: row.name, seatNo: row.seatNo, seq: row.seq });
+          Object.assign(c, { name: row.name, room: row.room, seatNo: row.seatNo, seq: row.seq });
           toSave.push(c);
           updated++;
         } else {
@@ -397,13 +471,17 @@ export class ExamsService {
   async export(examId: number): Promise<{ name: string; buffer: Buffer }> {
     const exam = await this.getExam(examId);
     const rows = (await this.candidates.find({ where: { examId } })).sort(compareCandidates);
+    const owners = new Map((await this.assignmentList(examId)).map((a) => [rowKey(a.room, a.row), a.userName]));
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('核查结果');
     ws.columns = [
       { header: '序号', key: 'seq', width: 8 },
       { header: '名称', key: 'name', width: 12 },
       { header: '学号', key: 'studentNo', width: 14 },
+      { header: '考场', key: 'room', width: 12 },
       { header: '座位号', key: 'seatNo', width: 10 },
+      { header: '排', key: 'row', width: 6 },
+      { header: '负责人', key: 'owner', width: 12 },
       { header: '核查结果', key: 'status', width: 10 },
       { header: '问题类型', key: 'issueType', width: 10 },
       { header: '情况说明', key: 'issueNote', width: 30 },
@@ -415,8 +493,11 @@ export class ExamsService {
     ];
     const fmt = (d: Date | null) => (d ? new Date(d).toLocaleString('zh-CN', { hour12: false }) : '');
     for (const c of rows) {
+      const seatRowNo = seatRow(c.seatNo, exam.seatsPerRow);
       const row = ws.addRow({
         ...c,
+        row: seatRowNo ?? '',
+        owner: seatRowNo ? owners.get(rowKey(c.room, seatRowNo)) ?? '' : '',
         status: STATUS_LABELS[c.status],
         issueType: c.issueType ? ISSUE_LABELS[c.issueType] : '',
         checkedAt: fmt(c.checkedAt),

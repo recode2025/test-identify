@@ -1,10 +1,11 @@
 import * as ExcelJS from 'exceljs';
 
-export type ColumnKey = 'seq' | 'studentNo' | 'name' | 'seatNo';
+export type ColumnKey = 'seq' | 'studentNo' | 'name' | 'room' | 'seatNo';
 
 const SYNONYMS: Record<ColumnKey, string[]> = {
   studentNo: ['学号', '考号', '准考证号', '学生编号', 'studentno', 'studentid'],
   name: ['姓名', '名称', '名字', '学生姓名', 'name'],
+  room: ['考场', '考场号', '考场名称', '考室', '教室', 'room'],
   seatNo: ['座位号', '座位', '座号', '考场座位号', 'seat', 'seatno'],
   seq: ['序号', 'no', 'no.'],
 };
@@ -13,6 +14,7 @@ export interface SheetRow {
   seq: number | null;
   studentNo: string;
   name: string;
+  room: string | null;
   seatNo: string | null;
 }
 
@@ -85,10 +87,11 @@ function parseSheet(ws: ExcelJS.Worksheet): { info: SheetInfo; rows: SheetRow[] 
     const studentNo = cellText(row.getCell(cols.studentNo!).value).replace(/\s/g, '');
     const name = cellText(row.getCell(cols.name!).value);
     if (!studentNo && !name) continue;
+    const room = cols.room ? cellText(row.getCell(cols.room).value) : '';
     const seat = cols.seatNo ? cellText(row.getCell(cols.seatNo).value) : '';
     const seqText = cols.seq ? cellText(row.getCell(cols.seq).value) : '';
     const seq = /^\d+$/.test(seqText) ? Number(seqText) : null;
-    rows.push({ seq, studentNo, name, seatNo: seat || null });
+    rows.push({ seq, studentNo, name, room: room || null, seatNo: seat || null });
   }
   info.ok = rows.length > 0;
   if (!info.ok) info.reason = '表头下方没有数据';
@@ -118,17 +121,20 @@ export async function buildTemplate(): Promise<Buffer> {
     { header: '序号', key: 'seq', width: 8 },
     { header: '名称', key: 'name', width: 14 },
     { header: '学号', key: 'studentNo', width: 16 },
+    { header: '考场', key: 'room', width: 12 },
     { header: '座位号', key: 'seatNo', width: 10 },
   ];
   ws.addRows([
-    { seq: 1, name: '张三', studentNo: '260450101', seatNo: 'A01' },
-    { seq: 2, name: '李四', studentNo: '260450102', seatNo: '' },
+    { seq: 1, name: '张三', studentNo: '260450101', room: '10B-405', seatNo: '01' },
+    { seq: 2, name: '李四', studentNo: '260450102', room: '10B-405', seatNo: '02' },
+    { seq: 3, name: '王五', studentNo: '260450103', room: '', seatNo: '' },
   ]);
   ws.getRow(1).font = { bold: true };
   ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4FF' } };
   ws.getColumn('studentNo').numFmt = '@';
   ws.getColumn('seatNo').numFmt = '@';
-  ws.getCell('F1').value = '说明：学号、名称必填；座位号可为空；表头需保留在第一行；可保留其他列（如分数），导入时自动忽略。';
-  ws.getCell('F1').font = { color: { argb: 'FF8C8C8C' } };
+  ws.getCell('G1').value =
+    '说明：学号、名称必填；考场、座位号可为空。座位号按「每排座位数」自动换算成第几排（如每排 12 座：01-12 为第 1 排），也可直接写成「3-5」表示第 3 排 5 号。表头需保留在第一行；其他列（如分数）导入时自动忽略。';
+  ws.getCell('G1').font = { color: { argb: 'FF8C8C8C' } };
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

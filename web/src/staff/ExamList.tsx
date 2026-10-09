@@ -18,6 +18,7 @@ export function ExamList() {
     load();
   }, [load]);
   useSocketEvent('exams:changed', load);
+  useSocketEvent('assignments:changed', load);
   useLiveRefresh(load, 15000);
 
   // A single assigned exam: skip the picker.
@@ -78,7 +79,8 @@ export function ExamList() {
                 )}
               </div>
               <Progress percent={e.stats.total ? Math.round((checked / e.stats.total) * 100) : 0} size="small" />
-              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                {!!e.myRows && <Tag color="blue">我负责 {e.myRows} 排</Tag>}
                 <Tag>共 {e.stats.total}</Tag>
                 <Tag color="success">正常 {e.stats.normal}</Tag>
                 <Tag color="error">异常 {e.stats.issue}</Tag>
