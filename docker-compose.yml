@@ -1,0 +1,16 @@
+services:
+  identify:
+    build:
+      context: .
+      args:
+        # 国内服务器可换成 https://registry.npmmirror.com
+        NPM_REGISTRY: https://registry.npmjs.org
+    image: identify:latest
+    container_name: identify
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      ADMIN_PASSWORD: change-me-now   # 仅首次启动创建管理员时生效
+    volumes:
+      - ./data:/data                  # 数据库 + 照片，务必持久化

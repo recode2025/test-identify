@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+server/data
+软件学院2026级证件照
+*.xlsx
+*.zip
+.git
+.DS_Store

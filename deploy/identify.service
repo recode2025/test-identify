@@ -1,0 +1,24 @@
+# /etc/systemd/system/identify.service
+# 不想装 PM2 时可用 systemd：
+#   sudo cp deploy/identify.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now identify
+
+[Unit]
+Description=Exam identity check
+After=network.target
+
+[Service]
+Type=simple
+User=identify
+WorkingDirectory=/opt/identify
+Environment=NODE_ENV=production
+Environment=TZ=Asia/Shanghai
+Environment=PORT=3000
+Environment=HOST=127.0.0.1
+# 用 `which node` 查看实际路径（nvm 安装的 node 路径不同）
+ExecStart=/usr/bin/node server/dist/main.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

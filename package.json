@@ -1,0 +1,13 @@
+{
+  "name": "identify",
+  "private": true,
+  "scripts": {
+    "setup": "npm --prefix server ci && npm --prefix web ci",
+    "build": "npm --prefix web run build && npm --prefix server run build",
+    "start": "node server/dist/main.js",
+    "backup": "node server/scripts/backup.js",
+    "reset-password": "node server/scripts/reset-password.js",
+    "dev:server": "npm --prefix server run dev",
+    "dev:web": "npm --prefix web run dev"
+  }
+}

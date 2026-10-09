@@ -1,0 +1,46 @@
+{
+  "name": "identify-server",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "dev": "nest start --watch"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.0",
+    "@nestjs/core": "^11.1.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/platform-express": "^11.1.0",
+    "@nestjs/platform-socket.io": "^11.1.0",
+    "@nestjs/serve-static": "^5.0.0",
+    "@nestjs/typeorm": "^11.0.0",
+    "@nestjs/websockets": "^11.1.0",
+    "bcryptjs": "^3.0.2",
+    "better-sqlite3": "^12.4.0",
+    "compression": "^1.8.0",
+    "cookie-parser": "^1.4.7",
+    "exceljs": "^4.4.0",
+    "multer": "^2.0.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "sharp": "^0.34.4",
+    "socket.io": "^4.8.1",
+    "typeorm": "^0.3.27",
+    "yauzl": "^3.2.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@types/compression": "^1.8.1",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.0.0",
+    "@types/yauzl": "^2.10.3",
+    "typescript": "^5.9.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "sharp@0.34.5": true
+  }
+}
