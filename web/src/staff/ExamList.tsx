@@ -78,9 +78,9 @@ export function ExamList() {
                   </span>
                 )}
               </div>
+              {!!e.myRows?.length && <div className="my-rows">我负责：{describeRows(e.myRows)}</div>}
               <Progress percent={e.stats.total ? Math.round((checked / e.stats.total) * 100) : 0} size="small" />
               <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                {!!e.myRows && <Tag color="blue">我负责 {e.myRows} 排</Tag>}
                 <Tag>共 {e.stats.total}</Tag>
                 <Tag color="success">正常 {e.stats.normal}</Tag>
                 <Tag color="error">异常 {e.stats.issue}</Tag>
@@ -93,6 +93,13 @@ export function ExamList() {
       <PasswordModal open={pwdOpen} onClose={() => setPwdOpen(false)} />
     </div>
   );
+}
+
+/** "10B-405 第 1、2 排；10B-407 第 3 排" */
+function describeRows(rows: { room: string; row: number }[]) {
+  const byRoom = new Map<string, number[]>();
+  rows.forEach((r) => byRoom.set(r.room, [...(byRoom.get(r.room) ?? []), r.row]));
+  return [...byRoom].map(([room, nums]) => `${room ? `${room} ` : ''}第 ${nums.join('、')} 排`).join('；');
 }
 
 export function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {

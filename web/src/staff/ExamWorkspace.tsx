@@ -3,7 +3,7 @@ import { Outlet, useOutletContext, useParams } from 'react-router-dom';
 import { Result, Spin, Button } from 'antd';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { groupByRow, RowGroup } from '../lib/rows';
+import { groupByRow, RoomSection, RowGroup, sectionsByRoom } from '../lib/rows';
 import { getSocket, useLiveRefresh, useSocketEvent } from '../lib/socket';
 import type { Candidate, CheckStatus, Exam, RowAssignment } from '../lib/types';
 
@@ -16,7 +16,13 @@ export interface Workspace {
   candidates: Candidate[];
   byId: Map<number, Candidate>;
   filtered: Candidate[];
+  /** Counts within the selected room (whole exam when no room is selected). */
   counts: Record<CheckStatus | 'all', number>;
+  /** Distinct rooms in seat order; empty when the roster has no 考场 column. */
+  rooms: string[];
+  /** '' = all rooms. */
+  room: string;
+  setRoom: (r: string) => void;
   filter: Filter;
   setFilter: (f: Filter) => void;
   search: string;
@@ -24,6 +30,7 @@ export interface Workspace {
   groups: RowGroup[];
   groupOf: Map<number, RowGroup>;
   myGroups: RowGroup[];
+  mySections: RoomSection[];
   mine: Candidate[];
   myCounts: Record<CheckStatus | 'all', number>;
   view: View;
@@ -68,6 +75,7 @@ export function ExamWorkspace() {
   const [filter, setFilter] = useState<Filter>('pending');
   const [search, setSearch] = useState('');
   const [view, setView] = useState<View | null>(null);
+  const [room, setRoom] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const scrollY = useRef(0);
 
@@ -135,21 +143,27 @@ export function ExamWorkspace() {
     groups.forEach((g) => g.candidates.forEach((c) => groupOf.set(c.id, g)));
     const myGroups = groups.filter((g) => g.owner?.userId === user?.id);
     const mine = myGroups.flatMap((g) => g.candidates);
-    return { groups, groupOf, myGroups, mine, myCounts: countOf(mine) };
+    const rooms = [...new Set(list.map((c) => c.room).filter((r): r is string => !!r))];
+    return { groups, groupOf, myGroups, mySections: sectionsByRoom(myGroups), mine, myCounts: countOf(mine), rooms };
   }, [candidates, assignments, user?.id]);
 
   // Until the staff member picks a tab, land on their own rows when they have any.
   const effectiveView: View = view ?? (rowData.myGroups.length ? 'mine' : 'all');
+  // Staff working a single room start the roster scoped to it.
+  const effectiveRoom = room ?? (rowData.mySections.length === 1 ? rowData.mySections[0].room : '');
 
   const value = useMemo<Workspace>(() => {
     const list = candidates ?? [];
-    const filtered = list.filter((c) => (filter === 'all' || c.status === filter) && matches(c, search));
+    const inRoom = effectiveRoom ? list.filter((c) => c.room === effectiveRoom) : list;
+    const filtered = inRoom.filter((c) => (filter === 'all' || c.status === filter) && matches(c, search));
     return {
       exam,
       candidates: list,
       byId: new Map(list.map((c) => [c.id, c])),
       filtered,
-      counts: countOf(list),
+      counts: countOf(inRoom),
+      room: effectiveRoom,
+      setRoom,
       filter,
       setFilter,
       search,
@@ -165,7 +179,7 @@ export function ExamWorkspace() {
       scrollY,
       reload,
     };
-  }, [exam, candidates, filter, search, rowData, effectiveView, expanded, toggleGroup, revealGroup, upsert, reload]);
+  }, [exam, candidates, filter, search, rowData, effectiveView, effectiveRoom, expanded, toggleGroup, revealGroup, upsert, reload]);
 
   if (error && !candidates) {
     return <Result status="warning" title={error} extra={<Button onClick={() => history.back()}>返回</Button>} />;

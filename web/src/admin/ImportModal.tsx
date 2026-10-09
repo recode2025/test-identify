@@ -119,7 +119,7 @@ export function ImportModal({ examId, open, onClose, onDone }: { examId: number;
                 <Tag>名称/姓名</Tag>，可选 <Tag>考场</Tag>
                 <Tag>座位号</Tag>
                 <Tag>序号</Tag>；考场、座位号可以为空，其余列（如分数）自动忽略。多个工作表时默认使用名为「最终」的表。
-                <div style={{ marginTop: 4 }}>有座位号时会按「每排座位数」自动分排，导入后可在「按排分配」中把每排分给员工。</div>
+                <div style={{ marginTop: 4 }}>有座位号时会按「每排座位数」自动分排，导入后可在「分配任务」中按考场、按排分给员工。</div>
                 <div style={{ marginTop: 8 }}>
                   <Button size="small" icon={<DownloadOutlined />} onClick={() => download('/import/template.xlsx', '考生名单模板.xlsx').catch((e) => message.error(e.message))}>
                     下载 Excel 模板

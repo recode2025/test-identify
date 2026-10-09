@@ -27,8 +27,8 @@ export interface Exam {
   seatsPerRow: number;
   createdAt: string;
   stats: ExamStats;
-  /** Staff only: how many rows of this exam are assigned to the viewer. */
-  myRows?: number;
+  /** Staff only: the rows of this exam assigned to the viewer. */
+  myRows?: { room: string; row: number }[];
 }
 
 export interface RowAssignment {

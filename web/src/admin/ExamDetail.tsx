@@ -60,6 +60,7 @@ export function ExamDetail() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [room, setRoom] = useState('');
   const [editExam, setEditExam] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
@@ -98,6 +99,19 @@ export function ExamDetail() {
 
   const owners = useMemo(() => new Map(assignments.map((a) => [rowKey(a.room, a.row), a.userName])), [assignments]);
   const hasRooms = useMemo(() => rows.some((r) => r.room), [rows]);
+  /** Per-room progress for the room switcher, in roster order. */
+  const roomStats = useMemo(() => {
+    const m = new Map<string, { total: number; checked: number; issue: number }>();
+    rows.forEach((r) => {
+      if (!r.room) return;
+      const s = m.get(r.room) ?? { total: 0, checked: 0, issue: 0 };
+      s.total++;
+      if (r.status !== 'pending') s.checked++;
+      if (r.status === 'issue' && !r.handled) s.issue++;
+      m.set(r.room, s);
+    });
+    return m;
+  }, [rows]);
 
   const counts = useMemo(() => {
     const c = { all: rows.length, pending: 0, normal: 0, issue: 0, unhandled: 0, nophoto: 0 };
@@ -112,13 +126,14 @@ export function ExamDetail() {
   const data = useMemo(
     () =>
       rows.filter((r) => {
+        if (room && r.room !== room) return false;
         if (!matches(r, search)) return false;
         if (filter === 'all') return true;
         if (filter === 'unhandled') return r.status === 'issue' && !r.handled;
         if (filter === 'nophoto') return !r.photoVersion;
         return r.status === filter;
       }),
-    [rows, search, filter],
+    [rows, search, filter, room],
   );
 
   const reset = (c: Candidate) =>
@@ -185,7 +200,7 @@ export function ExamDetail() {
               上传照片
             </Button>
             <Button icon={<TeamOutlined />} onClick={() => setAssignOpen(true)}>
-              按排分配{assignments.length ? `（${assignments.length} 排）` : ''}
+              分配任务{assignments.length ? `（${assignments.length} 排）` : ''}
             </Button>
             <Button icon={<DownloadOutlined />} onClick={() => download(`/exams/${examId}/export.xlsx`, '核查结果.xlsx').catch((e) => message.error(e.message))}>
               导出结果
@@ -222,7 +237,25 @@ export function ExamDetail() {
 
       <Card styles={{ body: { padding: 0 } }}>
         <div style={{ padding: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Input allowClear prefix={<SearchOutlined />} placeholder="学号 / 姓名 / 座位号" style={{ width: 240 }} value={search} onChange={(e) => setSearch(e.target.value)} />
+          {roomStats.size > 1 && (
+            <Segmented
+              value={room}
+              onChange={setRoom}
+              options={[
+                { value: '', label: '全部考场' },
+                ...[...roomStats].map(([r, st]) => ({
+                  value: r,
+                  label: (
+                    <span>
+                      {r} <span style={{ color: '#8c8c8c', fontSize: 12 }}>{st.checked}/{st.total}</span>
+                      {st.issue > 0 && <span style={{ color: '#cf1322', fontSize: 12 }}> · {st.issue}</span>}
+                    </span>
+                  ),
+                })),
+              ]}
+            />
+          )}
+          <Input allowClear prefix={<SearchOutlined />} placeholder="学号 / 姓名 / 座位号 / 考场" style={{ width: 240 }} value={search} onChange={(e) => setSearch(e.target.value)} />
           <Segmented<Filter>
             value={filter}
             onChange={setFilter}

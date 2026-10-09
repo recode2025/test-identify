@@ -60,7 +60,7 @@ export function CandidateList() {
           <div className="m-header-title">{ws.exam?.name ?? '考生名单'}</div>
         </div>
         <div style={{ fontSize: 13, opacity: 0.9, display: 'flex', gap: 12, marginTop: 4 }}>
-          <span>{mineView ? `我的 ${ws.myGroups.length} 排` : '全场'}</span>
+          <span>{mineView ? `我的 ${ws.myGroups.length} 排` : ws.room || '全部考场'}</span>
           <span>
             已核查 {checked}/{counts.all}
           </span>
@@ -79,7 +79,7 @@ export function CandidateList() {
           onChange={switchView}
           options={[
             { value: 'mine', label: `我的任务 ${myChecked}/${ws.myCounts.all}` },
-            { value: 'all', label: `全部考生 ${ws.counts.all}` },
+            { value: 'all', label: `全部考生 ${ws.candidates.length}` },
           ]}
         />
         {!mineView && <AllToolbar />}
@@ -95,6 +95,15 @@ function AllToolbar() {
   const { counts } = ws;
   return (
     <>
+      {ws.rooms.length > 1 && (
+        <div className="room-tabs">
+          {['', ...ws.rooms].map((r) => (
+            <span key={r} className={`room-tab${ws.room === r ? ' active' : ''}`} onClick={() => ws.setRoom(r)}>
+              {r || '全部考场'}
+            </span>
+          ))}
+        </div>
+      )}
       <Input
         allowClear
         size="large"
@@ -167,20 +176,46 @@ function MyRows({ open }: { open: (id: number) => void }) {
           <div style={{ fontSize: 16, fontWeight: 600 }}>你负责的 {ws.myGroups.length} 排已全部核查完成</div>
         </div>
       )}
-      {ws.myGroups.map((g) => (
-        <RowCard key={g.key} group={g} expanded={ws.expanded.has(g.key)} onToggle={() => ws.toggleGroup(g.key)} open={open} />
+      {ws.mySections.map((s) => (
+        <div key={s.room}>
+          {s.room && (
+            <div className="room-head">
+              <span className="room-head-name">{s.room}</span>
+              <span>
+                {s.groups.length} 排 · 已核查 {s.normal + s.issue}/{s.total}
+                {s.issue > 0 && <span style={{ color: '#cf1322' }}> · 异常 {s.issue}</span>}
+              </span>
+            </div>
+          )}
+          {s.groups.map((g) => (
+            <RowCard key={g.key} group={g} expanded={ws.expanded.has(g.key)} onToggle={() => ws.toggleGroup(g.key)} open={open} short={!!s.room} />
+          ))}
+        </div>
       ))}
     </div>
   );
 }
 
-function RowCard({ group: g, expanded, onToggle, open }: { group: RowGroup; expanded: boolean; onToggle: () => void; open: (id: number) => void }) {
+function RowCard({
+  group: g,
+  expanded,
+  onToggle,
+  open,
+  short,
+}: {
+  group: RowGroup;
+  expanded: boolean;
+  onToggle: () => void;
+  open: (id: number) => void;
+  /** Under a room heading: drop the room from the title. */
+  short: boolean;
+}) {
   const done = g.pending === 0;
   return (
     <div className={`row-card${done ? ' done' : ''}`}>
       <div className="row-card-head" onClick={onToggle}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="row-card-title">{g.label}</div>
+          <div className="row-card-title">{short ? g.shortLabel : g.label}</div>
           <div className="m-item-sub">
             {g.seats} · {g.candidates.length} 人
           </div>
@@ -250,7 +285,7 @@ function AllList({ open }: { open: (id: number) => void }) {
           <div key={c.id}>
             {head && (
               <div className="m-group-head">
-                <span style={{ fontWeight: 600, color: '#262626' }}>{g.label}</span>
+                <span style={{ fontWeight: 600, color: '#262626' }}>{ws.room ? g.shortLabel : g.label}</span>
                 <span>{g.seats}</span>
                 <span style={{ marginLeft: 'auto' }}>{g.row ? (g.owner ? `${g.owner.userName} 负责` : '未分配') : ''}</span>
               </div>

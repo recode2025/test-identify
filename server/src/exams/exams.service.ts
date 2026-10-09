@@ -60,9 +60,9 @@ export class ExamsService {
       FROM candidates c LEFT JOIN photos p ON p.studentNo = c.studentNo
       GROUP BY c.examId`);
     const byExam = new Map(stats.map((s) => [s.examId, s]));
-    const mine: { examId: number; n: number }[] =
-      user.role === 'staff' ? await this.ds.query(`SELECT examId, COUNT(*) AS n FROM row_assignments WHERE userId = ? GROUP BY examId`, [user.id]) : [];
-    const myRows = new Map(mine.map((r) => [r.examId, Number(r.n)]));
+    const mine = user.role === 'staff' ? await this.assignments.find({ where: { userId: user.id }, order: { room: 'ASC', row: 'ASC' } }) : [];
+    const myRows = new Map<number, { room: string; row: number }[]>();
+    for (const a of mine) myRows.set(a.examId, [...(myRows.get(a.examId) ?? []), { room: a.room, row: a.row }]);
     return exams.map((e) => {
       const s = byExam.get(e.id) ?? {};
       const total = Number(s.total ?? 0);
@@ -78,7 +78,7 @@ export class ExamsService {
           unhandled: Number(s.unhandled ?? 0),
           withPhoto: Number(s.withPhoto ?? 0),
         },
-        myRows: myRows.get(e.id) ?? 0,
+        myRows: myRows.get(e.id) ?? [],
       };
     });
   }
